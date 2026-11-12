@@ -62,3 +62,14 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 - Avoid wall-clock `time.Sleep` in TTL, expiration, ordering, or cache-eviction unit tests due to platform timer granularity (e.g. Windows default timer resolution of ~15.6ms) and CI jitter under load; prefer controllable clocks (`nowFunc` / mock clock), explicit timestamp manipulation, or deterministic synchronization primitives.
 - Note: if modifying features that involve CLIProxyAPIHome, check if corresponding updates are needed in the CLIProxyAPIHome repository.
 - Endpoints under the `/v0/management` base URL are deprecated and no longer maintained. For any feature changes, do not modify endpoints under `/v0/management` unless necessary to fix compilation errors.
+
+## Fork Conventions (ZT-xzwk/CLIProxyAPI)
+
+This repository is a fork of `router-for-me/CLIProxyAPI`.
+
+- `main` mirrors upstream and carries no fork changes; do not commit there.
+- `dev/personal` is the only branch that carries fork changes, and the only branch that builds the fork image (`.github/workflows/build-fork-image.yml`).
+- Remotes: `origin` is a `ghfast.top` mirror of this fork; `upstream` is fetch-only (`no_push`). The local `upstream/main` ref is frequently stale — always `git fetch upstream` before judging how far behind the fork is.
+- Every fork change is recorded in `FORK_CHANGES.md` (repository root, written in Chinese). **Read it before and after merging `upstream/main`, then verify each recorded customization is still semantically intact.** A merge can be conflict-free, compile, and pass `go test ./...` while upstream has silently refactored the same behavior — check the source diff of the upstream commits, not just the merge result.
+- Keep fork edits small and away from upstream hot spots; prefer new files over edits to upstream files. Any edit to this `AGENTS.md` must stay confined to this section so it can be re-applied after a conflicting merge.
+
