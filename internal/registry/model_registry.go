@@ -108,6 +108,11 @@ type ModelInfo struct {
 	// IsCompat enables compatibility handling for this configured API-key model.
 	// It is internal metadata and is not exposed in model listings.
 	IsCompat bool `json:"-"`
+
+	// ReasoningContract is the reasoning passthrough contract configured for this
+	// model (auto, deepseek, minimax, openrouter, anthropic or none). It is
+	// internal metadata and is not exposed in model listings.
+	ReasoningContract string `json:"-"`
 }
 
 // ModelConfig holds optional runtime overrides for a model definition.

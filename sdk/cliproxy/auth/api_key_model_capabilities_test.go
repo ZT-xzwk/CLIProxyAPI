@@ -715,3 +715,49 @@ func TestCodexAPIKeyModelIsCompat(t *testing.T) {
 		t.Fatal("nil config IsCompat = true, want false")
 	}
 }
+
+func TestAttachResolvedAPIKeyModelInfoCarriesReasoningContract(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	manager.SetConfig(&internalconfig.Config{OpenAICompatibility: []internalconfig.OpenAICompatibility{{
+		Name:    "compat",
+		Prefix:  "tenant",
+		BaseURL: "https://example.com/v1",
+		Models: []internalconfig.OpenAICompatibilityModel{
+			{Name: "deepseek-v4.1-flash-eco", Alias: "public-model", ReasoningContract: "deepseek"},
+			{Name: "plain-upstream", Alias: "plain-model"},
+		},
+	}}})
+	auth := &Auth{
+		ID:       "auth-contract",
+		Provider: "openai-compatibility:compat",
+		Prefix:   "tenant",
+		Attributes: map[string]string{
+			AttributeSource: "config:compat[0]",
+			"compat_name":   "compat",
+			"provider_key":  "openai-compatibility:compat",
+		},
+	}
+	registerCapabilityTestAuth(t, manager, auth)
+
+	models, _, _, routing := manager.executionModelCandidatesWithAlias(auth, "tenant/public-model")
+	if len(models) != 1 || models[0] != "deepseek-v4.1-flash-eco" {
+		t.Fatalf("execution models = %v, want [deepseek-v4.1-flash-eco]", models)
+	}
+	req := attachResolvedAPIKeyModelInfo(routing, cliproxyexecutor.Request{}, auth, "tenant/public-model", models[0])
+	info, ok := ResolvedAPIKeyModelInfo(req)
+	if !ok || info == nil {
+		t.Fatal("resolved model info missing")
+	}
+	if info.ReasoningContract != "deepseek" {
+		t.Fatalf("ReasoningContract = %q, want deepseek", info.ReasoningContract)
+	}
+
+	plainReq := attachResolvedAPIKeyModelInfo(routing, cliproxyexecutor.Request{}, auth, "tenant/plain-model", "plain-upstream")
+	plainInfo, okPlain := ResolvedAPIKeyModelInfo(plainReq)
+	if !okPlain || plainInfo == nil {
+		t.Fatal("resolved plain model info missing")
+	}
+	if plainInfo.ReasoningContract != "" {
+		t.Fatalf("plain model ReasoningContract = %q, want empty", plainInfo.ReasoningContract)
+	}
+}

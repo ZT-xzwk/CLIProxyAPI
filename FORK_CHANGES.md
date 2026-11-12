@@ -46,8 +46,9 @@ git -c credential.helper='!gh auth git-credential' push \
 | 1 | fork 镜像构建（推 GHCR `ghcr.io/<owner>/cli-proxy-api-fork`） | `e1bbcf24` | `.github/workflows/build-fork-image.yml`（fork 新增） | 否 | 上游若新增同名 workflow 需合并；`paths-ignore` 含 `**/*.md`，纯文档提交不触发构建 |
 | 2 | 构建触发分支由 `main` 改为 `dev/personal` | `7ca4d489` | 同上 | 否 | 确认触发分支仍是 `dev/personal`，`workflow_dispatch` 仍保留 |
 | 3 | `AGENTS.md` 末尾追加「Fork Conventions」小节 | 本次提交 | `AGENTS.md` | **是**（上游文件，本次只追加末尾一节） | 上游经常改这个文件；合并时若冲突，保留上游全文 + 只在末尾重贴本 fork 小节 |
+| 4 | 思考链回传契约（`reasoning-contract`）：响应侧按契约补齐 reasoning 字段 + 请求侧兜底回填历史 assistant | 本次提交 | `internal/config/config_types.go`、`internal/registry/model_registry.go`、`sdk/cliproxy/auth/api_key_model_capabilities.go`、`internal/runtime/executor/helps/reasoning_contract.go`（fork 新增）、`helps/model_capabilities.go`、`internal/runtime/executor/openai_compat_executor.go`、`config.example.yaml` + 4 个测试文件 | **是**（除 reasoning_contract.go 外均为上游文件） | 上游若改 `OpenAICompatibilityModel` / `ModelInfo` / `addConfiguredModelCapability` 签名 / `ApplyRequestThinkingWithModelInfoDoc` / `openai_compat_executor.go` 的 `processFrame` 管线，需同步核对契约透传与归一化接入点仍完好；上游若自行实现 reasoning 回传，考虑直接采用上游版本 |
 
-业务功能改造：**暂无**。
+业务功能改造：**见改造清单 #4**（默认 `reasoning-contract: none`，不配置时行为与上游完全一致）。
 
 ---
 
@@ -112,6 +113,26 @@ Docker 相关改动另跑 `./docker-build.sh`（Windows 用 `docker-build.ps1`�
 ---
 
 ## 变更记录
+
+### 2026-11-13
+- 思考链回传契约改造（依据工作区 `docs/reasoning-passthrough-plan-v2.md` v2.1，官方契约已核：DeepSeek《思考模式》带 tools 必须
+  完整回传 `reasoning_content` 否则 400；MiniMax M3.1-Flash OpenAI SDK 思考字段为 `reasoning_content` 且要求完整回传
+  assistant message；OpenRouter `reasoning` 为正名、`reasoning_content` 为别名）：
+  - 新增模型级配置 `openai-compatibility.*.models[].reasoning-contract`（auto/deepseek/minimax/openrouter/anthropic/none，
+    默认 none，未知值回退 none）；经 `addConfiguredModelCapability` 与 Home 选项透传进 `registry.ModelInfo.ReasoningContract`。
+  - 响应侧：`helps.NormalizeChatCompletionReasoning` 按契约补齐目标字段（deepseek/minimax→`reasoning_content`，
+    openrouter→`reasoning`），只补缺失、绝不覆盖非空值、绝不合成/修改 `reasoning_details`；非流式作用于
+    `TranslateNonStream` 产物，流式复用 `processFrame` 现有 `dataPayload` 管线（插入点在 `ObserveChatTokenEvent` 之后、
+    `streamLine` 之前），带 `"reasoning` 字节预筛，`[DONE]`/usage/错误帧不触碰；`responses/compact` 明确跳过。
+  - 请求侧（与响应侧同批）：`helps.reconcileReasoningContractDoc` 扫描全部历史 assistant，把 `reasoning`/
+    `reasoning_details` 文本回填为 `reasoning_content`；deepseek 契约以「tools 非空」为门控（官方规则），无文本时
+    最后手段补 `" "` 占位（需 thinking 激活）；minimax 无 tools 门控、不占位；openrouter 请求侧不触发（上游接受别名）。
+    Claude→OpenAI 既有 `is-compat` reconcile 行为不变（`reasoningEffortActive` 抽为共享 helper，语义等价）。
+  - mcode（MiniMax Code）是「响应驱动回传」：响应里给哪个字段，下一轮就回传哪个字段——因此响应侧是主路径，
+    请求侧兜底覆盖存量长会话（历史里只有 `reasoning` 的轮次）。
+  - MiniMax 契约按官方 M3.1-Flash 文档实现（`reasoning_content`）；上线前建议再做一次真实 API probe 确认字段后再在
+    生产配置启用。GLM 未确认，保持 none。
+- 全量 `go build ./...`、相关包 `go test` 通过；现有 `"unsupported thinking model strips reasoning_effort..."` 等回归用例不变。
 
 ### 2026-11-12
 - 建立本文件：补齐分支与远程、改造清单（目前仅 CI 两项 + `AGENTS.md` 追加节）、合并 SOP、Go 项目的逻辑冲突红线、环境坑。

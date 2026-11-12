@@ -321,6 +321,7 @@ func attachResolvedHomeModelInfo(req cliproxyexecutor.Request, auth *Auth, route
 	}
 	if configured {
 		selected.IsCompat = options.IsCompat
+		selected.ReasoningContract = options.ReasoningContract
 	}
 
 	metadata[resolvedHomeModelInfoMetadataKey] = &selected
@@ -386,7 +387,7 @@ func compileAPIKeyModelCapabilitiesForAuth(cfg *internalconfig.Config, auth *Aut
 		if entry := resolveCodexAPIKeyConfig(cfg, auth); entry != nil {
 			for i := range entry.Models {
 				configured := entry.Models[i]
-				info := addConfiguredModelCapability(out, configured.Name, configured.Alias, "codex", configured.Thinking, configured.IsCompat)
+				info := addConfiguredModelCapability(out, configured.Name, configured.Alias, "codex", configured.Thinking, configured.IsCompat, "")
 				if info != nil {
 					info.SupportConfigurationUpdate = configured.SupportConfigurationUpdate
 				}
@@ -409,7 +410,7 @@ func compileAPIKeyModelCapabilitiesForAuth(cfg *internalconfig.Config, auth *Aut
 				if support == nil && openAPI && modelconfig.ResolveModelInfo(configured.Name, "gemini", nil).Thinking == nil {
 					support = &registry.ThinkingSupport{Levels: []string{"low", "medium", "high"}}
 				}
-				addConfiguredModelCapability(out, configured.Name, configured.Alias, "gemini", support, false)
+				addConfiguredModelCapability(out, configured.Name, configured.Alias, "gemini", support, false, "")
 			}
 		}
 	case "meta":
@@ -442,7 +443,7 @@ func compileConfiguredModelCapabilities[T interface {
 		if compatModel, okCompat := any(models[i]).(interface{ GetIsCompat() bool }); okCompat {
 			isCompat = compatModel.GetIsCompat()
 		}
-		addConfiguredModelCapability(out, models[i].GetName(), models[i].GetAlias(), modelType, models[i].GetThinking(), isCompat)
+		addConfiguredModelCapability(out, models[i].GetName(), models[i].GetAlias(), modelType, models[i].GetThinking(), isCompat, "")
 	}
 }
 
@@ -452,11 +453,11 @@ func compileOpenAICompatibleModelCapabilities(out map[string][]apiKeyModelCapabi
 		if support == nil && !models[i].Image {
 			support = &registry.ThinkingSupport{Levels: []string{"low", "medium", "high"}}
 		}
-		addConfiguredModelCapability(out, models[i].Name, models[i].Alias, "openai-compatibility", support, models[i].IsCompat)
+		addConfiguredModelCapability(out, models[i].Name, models[i].Alias, "openai-compatibility", support, models[i].IsCompat, models[i].ReasoningContract)
 	}
 }
 
-func addConfiguredModelCapability(out map[string][]apiKeyModelCapabilityRoute, name, alias, modelType string, support *registry.ThinkingSupport, isCompat bool) *registry.ModelInfo {
+func addConfiguredModelCapability(out map[string][]apiKeyModelCapabilityRoute, name, alias, modelType string, support *registry.ThinkingSupport, isCompat bool, reasoningContract string) *registry.ModelInfo {
 	name = strings.TrimSpace(name)
 	alias = strings.TrimSpace(alias)
 	if name == "" {
@@ -470,6 +471,7 @@ func addConfiguredModelCapability(out map[string][]apiKeyModelCapabilityRoute, n
 	}
 	modelInfo := modelconfig.ResolveModelInfo(name, modelType, support)
 	modelInfo.IsCompat = isCompat
+	modelInfo.ReasoningContract = reasoningContract
 	route := apiKeyModelCapabilityRoute{upstreamModel: name, modelInfo: modelInfo}
 	seenKeys := make(map[string]struct{})
 	for _, routeModel := range []string{alias, name} {

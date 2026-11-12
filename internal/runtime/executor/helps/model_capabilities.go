@@ -91,6 +91,9 @@ func ApplyRequestThinkingWithModelInfoDoc(doc *ojson.Doc, req cliproxyexecutor.R
 	if shouldReconcileClaudeOpenAICompatToolCallReasoning(req, fromFormat, toFormat) {
 		reconcileClaudeOpenAICompatToolCallReasoningDoc(doc)
 	}
+	if contract, okContract := shouldReconcileReasoningContract(req, toFormat); okContract {
+		reconcileReasoningContractDoc(doc, contract)
+	}
 	return nil
 }
 
@@ -108,13 +111,7 @@ func reconcileClaudeOpenAICompatToolCallReasoningDoc(doc *ojson.Doc) bool {
 	if !messages.Exists() || !messages.IsArray() {
 		return false
 	}
-	reasoningActive := false
-	if effortRes := doc.Get("reasoning_effort"); effortRes.Exists() {
-		resolvedEffort := strings.ToLower(strings.TrimSpace(effortRes.String()))
-		if resolvedEffort != "" && resolvedEffort != string(thinking.LevelNone) && resolvedEffort != "0" && resolvedEffort != "false" {
-			reasoningActive = true
-		}
-	}
+	reasoningActive := reasoningEffortActive(doc)
 
 	modified := false
 	for idx, msg := range messages.Array() {

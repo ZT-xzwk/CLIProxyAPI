@@ -253,6 +253,18 @@ func (e *OpenAICompatExecutor) executeWithCredentials(ctx context.Context, auth 
 	if helps.ApplyPatchTranslationError(param) != nil || len(out) == 0 {
 		return cliproxyexecutor.Response{}, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
 	}
+	// Align reasoning fields with the model contract so reasoning-aware clients
+	// record and pass back the field this upstream expects. A normalization
+	// failure keeps the original payload.
+	if responseFormat == sdktranslator.FormatOpenAI && to.String() == "openai" {
+		reasoningContract := helps.APIKeyModelReasoningContract(req)
+		if normalized, errNormalize := helps.NormalizeChatCompletionReasoning(out, reasoningContract); errNormalize != nil {
+			helps.LogWithRequestID(ctx).Debugf("openai compat executor: normalize response reasoning error: %v", errNormalize)
+		} else if !bytes.Equal(out, normalized) {
+			out = normalized
+			helps.LogWithRequestID(ctx).Debugf("openai compat executor: reasoning contract %s filled %s in non-stream response", reasoningContract, helps.ReasoningContractTargetField(reasoningContract))
+		}
+	}
 	reporter.Publish(ctx, helps.ParseOpenAIUsage(body))
 	if responseFormat == sdktranslator.FormatOpenAIResponse {
 		out = helps.EnsureResponsesUsageDetails(out)
@@ -486,6 +498,8 @@ func (e *OpenAICompatExecutor) executeStreamWithCredentials(ctx context.Context,
 		return nil, err
 	}
 	out := make(chan cliproxyexecutor.StreamChunk)
+	reasoningContract := helps.APIKeyModelReasoningContract(req)
+	normalizeReasoningFrames := responseFormat == sdktranslator.FormatOpenAI && to.String() == "openai"
 	go func() {
 		defer close(out)
 		defer func() {
@@ -569,6 +583,18 @@ func (e *OpenAICompatExecutor) executeStreamWithCredentials(ctx context.Context,
 				streamUsage.ObserveOpenAIStream(dataPayload)
 			}
 			helps.ObserveChatTokenEvent(reporter, dataPayload)
+			// Align reasoning fields with the model contract before the frame is
+			// forwarded; a normalization failure keeps the original payload.
+			if !isDone && normalizeReasoningFrames {
+				if normalizedPayload, errNormalize := helps.NormalizeChatCompletionReasoning(dataPayload, reasoningContract); errNormalize != nil {
+					helps.LogWithRequestID(ctx).Debugf("openai compat executor: normalize stream reasoning error: %v", errNormalize)
+				} else {
+					if !bytes.Equal(dataPayload, normalizedPayload) {
+						helps.LogWithRequestID(ctx).Debugf("openai compat executor: reasoning contract %s filled %s in stream frame", reasoningContract, helps.ReasoningContractTargetField(reasoningContract))
+					}
+					dataPayload = normalizedPayload
+				}
+			}
 			streamLine := append([]byte("data: "), dataPayload...)
 			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, helps.ApplyPatchOriginalRequest(req, opts), translated, streamLine, &param, claudeInputTokens)
 			helps.RecordApplyPatchStreamFailure(ctx, param, reporter, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage})
