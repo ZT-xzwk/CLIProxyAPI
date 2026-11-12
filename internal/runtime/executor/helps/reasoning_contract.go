@@ -212,7 +212,12 @@ func reasoningTextOfResult(res ojson.Result, excludeField string) string {
 	if details.IsArray() {
 		var builder strings.Builder
 		for _, item := range details.Array() {
+			// reasoning.text carries the raw trace; reasoning.summary carries a
+			// rewritten summary (used by gateways that only expose summaries).
 			text := jsonStringResult(item.Get("text"))
+			if text == "" {
+				text = jsonStringResult(item.Get("summary"))
+			}
 			if text == "" {
 				continue
 			}

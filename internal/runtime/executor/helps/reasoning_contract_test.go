@@ -155,6 +155,14 @@ func TestNormalizeChatCompletionReasoning(t *testing.T) {
 			wantField: "reasoning_content", wantValue: "mm",
 		},
 		{
+			// Gateways that only expose rewritten summaries return
+			// reasoning.summary entries instead of reasoning.text.
+			name:      "deepseek reads reasoning_details summary entries",
+			contract:  ReasoningContractDeepSeek,
+			body:      `{"choices":[{"message":{"reasoning_details":[{"index":0,"type":"reasoning.summary","summary":"sum-a"},{"index":1,"type":"reasoning.encrypted","data":"enc"}]}}]}`,
+			wantField: "reasoning_content", wantValue: "sum-a",
+		},
+		{
 			// MiniMax replays reasoning_details verbatim; synthesizing
 			// reasoning_content would make clients drop the details chain.
 			name:          "minimax skips synthesis when reasoning_details present",
